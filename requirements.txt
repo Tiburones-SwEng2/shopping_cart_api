@@ -1,0 +1,8 @@
+bson
+flask 
+flasgger 
+flask_cors
+dotenv
+requests
+flask_pymongo
+flask_jwt_extended
