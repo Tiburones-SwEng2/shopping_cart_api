@@ -6,4 +6,4 @@ dotenv
 requests
 flask_pymongo
 flask_jwt_extended
-prometheus-client
+prometheus_client

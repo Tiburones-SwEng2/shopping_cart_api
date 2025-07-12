@@ -10,6 +10,7 @@ from flask_pymongo import PyMongo
 from prometheus_client import Counter, Histogram, generate_latest
 import time
 from functools import wraps
+from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity
 
 # Load environment variables
 load_dotenv()
@@ -53,11 +54,16 @@ def monitor_metrics(f):
 app.config["MONGO_URI"] = os.getenv("MONGO_URI", "mongodb://localhost:27017/shopping_cart_db")
 mongo = PyMongo(app)
 
+# Configure JWT
+app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "lkhjap8gy2p 03kt")
+jwt = JWTManager(app)
+
 # Create indexes
 mongo.db.cart.create_index([("user_email", 1), ("donation_id", 1)], unique=True)
 
 @app.route('/cart', methods=['POST'])
 @monitor_metrics
+@jwt_required()
 def add_to_cart():
     """
     Add a donation item to the shopping cart
@@ -120,6 +126,7 @@ def add_to_cart():
 
 @app.route('/cart/<user_email>', methods=['GET'])
 @monitor_metrics
+@jwt_required()
 def get_cart(user_email):
     """
     Get all items in a user's shopping cart
@@ -182,6 +189,7 @@ def get_cart(user_email):
 
 @app.route('/cart/<cart_item_id>', methods=['DELETE'])
 @monitor_metrics
+@jwt_required()
 def remove_from_cart(cart_item_id):
     """
     Remove an item from the shopping cart
@@ -217,6 +225,7 @@ def remove_from_cart(cart_item_id):
 
 @app.route('/cart/<cart_item_id>/claim', methods=['POST'])
 @monitor_metrics
+@jwt_required()
 def claim_item(cart_item_id):
     """
     Claim a donation item (finalize the request)
