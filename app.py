@@ -7,6 +7,9 @@ import os
 from dotenv import load_dotenv
 import requests
 from flask_pymongo import PyMongo
+from prometheus_client import Counter, Histogram, generate_latest
+import time
+from functools import wraps
 
 # Load environment variables
 load_dotenv()
@@ -14,6 +17,37 @@ load_dotenv()
 app = Flask(__name__)
 swagger = Swagger(app)
 CORS(app)
+
+# MÉTRICAS
+REQUEST_COUNT = Counter('shopping_cart_http_requests_total', 'Total Requests', ['method', 'endpoint'])
+REQUEST_LATENCY = Histogram('shopping_cart_http_request_duration_seconds', 'Request Latency', ['endpoint'])
+ERROR_COUNT = Counter('shopping_cart_http_request_errors_total', 'Total Errors', ['endpoint'])
+
+def monitor_metrics(f):
+    """Decorador para monitorear métricas de Prometheus"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        start_time = time.time()
+        endpoint = request.endpoint or 'unknown'
+        method = request.method
+        
+        # Incrementar contador de requests
+        REQUEST_COUNT.labels(method=method, endpoint=endpoint).inc()
+        
+        try:
+            # Ejecutar la función
+            response = f(*args, **kwargs)
+            return response
+        except Exception as e:
+            # Incrementar contador de errores
+            ERROR_COUNT.labels(endpoint=endpoint).inc()
+            raise
+        finally:
+            # Medir latencia
+            duration = time.time() - start_time
+            REQUEST_LATENCY.labels(endpoint=endpoint).observe(duration)
+    
+    return decorated_function
 
 # Configure MongoDB
 app.config["MONGO_URI"] = os.getenv("MONGO_URI", "mongodb://localhost:27017/shopping_cart_db")
@@ -23,6 +57,7 @@ mongo = PyMongo(app)
 mongo.db.cart.create_index([("user_email", 1), ("donation_id", 1)], unique=True)
 
 @app.route('/cart', methods=['POST'])
+@monitor_metrics
 def add_to_cart():
     """
     Add a donation item to the shopping cart
@@ -84,6 +119,7 @@ def add_to_cart():
         return jsonify({"error": "Item already in cart", "details": str(e)}), 400
 
 @app.route('/cart/<user_email>', methods=['GET'])
+@monitor_metrics
 def get_cart(user_email):
     """
     Get all items in a user's shopping cart
@@ -145,6 +181,7 @@ def get_cart(user_email):
     return jsonify(enhanced_cart), 200
 
 @app.route('/cart/<cart_item_id>', methods=['DELETE'])
+@monitor_metrics
 def remove_from_cart(cart_item_id):
     """
     Remove an item from the shopping cart
@@ -179,6 +216,7 @@ def remove_from_cart(cart_item_id):
 
 
 @app.route('/cart/<cart_item_id>/claim', methods=['POST'])
+@monitor_metrics
 def claim_item(cart_item_id):
     """
     Claim a donation item (finalize the request)
@@ -249,6 +287,23 @@ def claim_item(cart_item_id):
     updated_item["claimed_at"] = updated_item["claimed_at"].isoformat()
     
     return jsonify(updated_item), 200
+
+@app.route("/metrics", methods=["GET"])
+def metrics():
+    """
+    Endpoint para exponer métricas de Prometheus
+    ---
+    tags:
+      - Métricas
+    responses:
+      200:
+        description: Métricas de Prometheus
+        content:
+          text/plain:
+            schema:
+              type: string
+    """
+    return generate_latest(), 200, {'Content-Type': 'text/plain; charset=utf-8'}
 
 if __name__ == '__main__':
     app.run(debug=True, port=5003)
